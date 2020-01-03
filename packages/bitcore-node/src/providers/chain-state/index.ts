@@ -1,16 +1,7 @@
-import { BTCStateProvider } from './btc/btc';
-import { BCHStateProvider } from './bch/bch';
-import { ETHStateProvider } from './eth/eth';
-import { BATStateProvider } from './erc20/tokens/bat';
 import { CSP } from '../../types/namespaces/ChainStateProvider';
 import { Chain } from '../../types/ChainNetwork';
 
-const services: CSP.ChainStateServices = {
-  BTC: new BTCStateProvider(),
-  BCH: new BCHStateProvider(),
-  ETH: new ETHStateProvider(),
-  BAT: new BATStateProvider()
-};
+const services: CSP.ChainStateServices = {};
 
 class ChainStateProxy implements CSP.ChainStateProvider {
   get({ chain }: Chain) {
@@ -36,6 +27,10 @@ class ChainStateProxy implements CSP.ChainStateProvider {
     return this.get(params).getBlock(params);
   }
 
+  async getBlockBeforeTime(params: CSP.GetBlockBeforeTimeParams) {
+    return this.get(params).getBlockBeforeTime(params);
+  }
+
   streamBlocks(params: CSP.StreamBlocksParams) {
     return this.get(params).streamBlocks(params);
   }
@@ -48,7 +43,7 @@ class ChainStateProxy implements CSP.ChainStateProvider {
     return this.get(params).getAuthhead(params);
   }
 
-  getDailyTransactions(params: { chain: string; network: string }) {
+  getDailyTransactions(params: CSP.DailyTransactionsParams) {
     return this.get(params).getDailyTransactions(params);
   }
 
@@ -118,6 +113,10 @@ class ChainStateProxy implements CSP.ChainStateProvider {
 
   streamMissingWalletAddresses(params) {
     return this.get(params).streamMissingWalletAddresses(params);
+  }
+
+  isValid(params) {
+    return this.get(params).isValid(params);
   }
 }
 export let ChainStateProvider = new ChainStateProxy();

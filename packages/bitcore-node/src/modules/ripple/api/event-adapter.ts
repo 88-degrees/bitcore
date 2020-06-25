@@ -1,14 +1,16 @@
-import logger from '../../../logger';
-import { BaseModule } from '../..';
-import { RippleStateProvider } from './csp';
+import { ObjectId } from 'mongodb';
 import { RippleAPI } from 'ripple-lib';
-import { StateStorage } from '../../../models/state';
+import { BaseModule } from '../..';
+import logger from '../../../logger';
+import { RippleStateProvider } from './csp';
 
 export class RippleEventAdapter {
+  stopping = false;
   clients: RippleAPI[] = [];
   constructor(protected services: BaseModule['bitcoreServices']) {}
 
   async start() {
+    this.stopping = false;
     console.log('Starting websocket adapter for Ripple');
     const networks = this.services.Config.chainNetworks()
       .filter(c => c.chain === 'XRP')
@@ -18,23 +20,31 @@ export class RippleEventAdapter {
 
     for (let network of networks) {
       try {
-        await StateStorage.collection.findOneAndUpdate(
-          {},
-          { $addToSet: { initialSyncComplete: `${chain}:${network}` } },
-          { upsert: true }
-        );
         const client = await csp.getClient(network);
 
-        client.connection.on('transaction', tx => {
-          const transformed = csp.transform(tx, network);
-          this.services.Event.txEvent.emit('tx', { chain, network, ...transformed });
-          const address = tx.transaction.Account;
-          const coin = csp.transformToCoin(tx, network);
-          this.services.Event.addressCoinEvent.emit('coin', { address, coin });
+        client.on('ledger', async ledger => {
+          this.services.Event.blockEvent.emit('block', { chain, network, ...ledger });
         });
 
-        client.connection.on('ledger', ledger => {
-          this.services.Event.blockEvent.emit('block', { chain, network, ...ledger });
+        client.connection.on('disconnected', () => {
+          if (!this.stopping) {
+            client.connection.reconnect();
+          }
+        });
+
+        client.connection.on('transaction', async tx => {
+          const address = tx.transaction.Account;
+          const transformedTx = { ...csp.transform(tx, network), wallets: new Array<ObjectId>() };
+          if ('chain' in transformedTx) {
+            const transformedCoins = csp.transformToCoins(tx, network);
+            const { transaction, coins } = await csp.tag(chain, network, transformedTx, transformedCoins);
+            this.services.Event.txEvent.emit('tx', { chain, network, ...transaction });
+            if (coins && coins.length) {
+              for (const coin of coins) {
+                this.services.Event.addressCoinEvent.emit('coin', { address, coin });
+              }
+            }
+          }
         });
 
         await client.connection.request({
@@ -48,6 +58,7 @@ export class RippleEventAdapter {
   }
 
   async stop() {
+    this.stopping = true;
     for (const client of this.clients) {
       client.connection.removeAllListeners();
     }

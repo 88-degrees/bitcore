@@ -1,22 +1,23 @@
-import * as _ from 'lodash';
 import { ObjectID } from 'bson';
-import logger from '../../../logger';
+import * as _ from 'lodash';
 import { LoggifyClass } from '../../../decorators/Loggify';
-import { IEthTransaction, EthTransactionJSON } from '../types';
-import { StorageService, Storage } from '../../../services/storage';
-import { partition } from '../../../utils/partition';
-import { TransformOptions } from '../../../types/TransformOptions';
+import logger from '../../../logger';
 import { MongoBound } from '../../../models/base';
-import { WalletAddressStorage } from '../../../models/walletAddress';
-import { SpentHeightIndicators } from '../../../types/Coin';
-import { EventStorage } from '../../../models/events';
-import { Config } from '../../../services/config';
-import { StreamingFindOptions } from '../../../types/Query';
-import { ERC721Abi } from '../abi/erc721';
-import { ERC20Abi } from '../abi/erc20';
 import { BaseTransaction } from '../../../models/baseTransaction';
+import { CacheStorage } from '../../../models/cache';
+import { EventStorage } from '../../../models/events';
+import { WalletAddressStorage } from '../../../models/walletAddress';
+import { Config } from '../../../services/config';
+import { Storage, StorageService } from '../../../services/storage';
+import { SpentHeightIndicators } from '../../../types/Coin';
+import { StreamingFindOptions } from '../../../types/Query';
+import { TransformOptions } from '../../../types/TransformOptions';
 import { valueOrDefault } from '../../../utils/check';
+import { partition } from '../../../utils/partition';
+import { ERC20Abi } from '../abi/erc20';
+import { ERC721Abi } from '../abi/erc721';
 import { InvoiceAbi } from '../abi/invoice';
+import { EthTransactionJSON, IEthTransaction } from '../types';
 
 function requireUncached(module) {
   delete require.cache[require.resolve(module)];
@@ -79,10 +80,17 @@ export class EthTransactionModel extends BaseTransaction<IEthTransaction> {
     logger.debug('Writing Transactions', txOps.length);
     operations.push(
       ...partition(txOps, txOps.length / Config.get().maxPoolSize).map(txBatch =>
-        this.collection.bulkWrite(txBatch.map(op => this.toMempoolSafeUpsert(op, params.height)), { ordered: false })
+        this.collection.bulkWrite(
+          txBatch.map(op => this.toMempoolSafeUpsert(op, params.height)),
+          { ordered: false }
+        )
       )
     );
     await Promise.all(operations);
+
+    if (params.initialSyncComplete) {
+      await this.expireBalanceCache(txOps);
+    }
 
     // Create events for mempool txs
     if (params.height < SpentHeightIndicators.minimum) {
@@ -94,6 +102,26 @@ export class EthTransactionModel extends BaseTransaction<IEthTransaction> {
           address: tx.to,
           coin: { value: tx.value, address: tx.to, chain: params.chain, network: params.network, mintTxid: tx.txid }
         });
+      }
+    }
+  }
+
+  async expireBalanceCache(txOps: Array<any>) {
+    for (const op of txOps) {
+      let batch = new Array<{ tokenAddress?: string; address: string }>();
+      const { chain, network } = op.updateOne.filter;
+      const { from, to, abiType } = op.updateOne.update.$set;
+      batch = batch.concat([{ address: from }, { address: to }]);
+      if (abiType && abiType.params.length) {
+        batch.push({ address: from, tokenAddress: to });
+        batch.push({ address: abiType.params[0].value, tokenAddress: to });
+      }
+      for (const payload of batch) {
+        const lowerAddress = payload.address.toLowerCase();
+        const cacheKey = payload.tokenAddress
+          ? `getBalanceForAddress-${chain}-${network}-${lowerAddress}-${to.toLowerCase()}`
+          : `getBalanceForAddress-${chain}-${network}-${lowerAddress}`;
+        await CacheStorage.expire(cacheKey);
       }
     }
   }
@@ -137,7 +165,10 @@ export class EthTransactionModel extends BaseTransaction<IEthTransaction> {
           const { to, txid, from } = tx;
           const sentWallets = await WalletAddressStorage.collection.find({ chain, network, address: from }).toArray();
           const receivedWallets = await WalletAddressStorage.collection.find({ chain, network, address: to }).toArray();
-          const wallets = _.uniqBy(sentWallets.concat(receivedWallets).map(w => w.wallet), w => w.toHexString());
+          const wallets = _.uniqBy(
+            sentWallets.concat(receivedWallets).map(w => w.wallet),
+            w => w.toHexString()
+          );
 
           return {
             updateOne: {
@@ -253,7 +284,8 @@ export class EthTransactionModel extends BaseTransaction<IEthTransaction> {
       internal: tx.internal
         ? tx.internal.map(t => ({ ...t, decodedData: this.abiDecode(t.action.input || '0x') }))
         : [],
-      decodedData: valueOrDefault(decodedData, undefined)
+      decodedData: valueOrDefault(decodedData, undefined),
+      receipt: valueOrDefault(tx.receipt, undefined)
     };
     if (options && options.object) {
       return transaction;

@@ -13,6 +13,7 @@ export interface SubmitResponse {
       value: string;
     };
     Destination: string;
+    InvoiceID?: string;
     Fee: string;
     Flags: number;
     Sequence: number;
@@ -21,4 +22,30 @@ export interface SubmitResponse {
     TxnSignature: string;
     hash: string;
   };
+}
+
+export interface SingleOutputTx {
+  engine_result: string;
+  engine_result_code: number;
+  engine_result_message: string;
+  ledger_current_index: number;
+  ledger_index?: number;
+  status: string;
+  transaction: {
+    Account: string;
+    Amount: string;
+    Destination: string;
+    DestinationTag: number;
+    Fee: string;
+    Flags: number;
+    LastLedgerSequence: number;
+    Sequence: number;
+    SigningPubKey: string;
+    TransactionType: string;
+    TxnSignature: string;
+    hash: string;
+    InvoiceID?: string;
+  };
+  type: 'transaction';
+  validated: false;
 }

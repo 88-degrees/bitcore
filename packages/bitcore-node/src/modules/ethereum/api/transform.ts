@@ -1,8 +1,8 @@
 import { Transform } from 'stream';
-import { IWallet } from '../../../models/wallet';
-import { IEthTransaction } from '../types';
 import { MongoBound } from '../../../models/base';
+import { IWallet } from '../../../models/wallet';
 import { WalletAddressStorage } from '../../../models/walletAddress';
+import { IEthTransaction } from '../types';
 
 export class EthListTransactionsStream extends Transform {
   constructor(private wallet: IWallet) {
@@ -29,6 +29,9 @@ export class EthListTransactionsStream extends Transform {
             satoshis: -transaction.value,
             height: transaction.blockHeight,
             from: transaction.from,
+            gasPrice: transaction.gasPrice,
+            gasLimit: transaction.gasLimit,
+            receipt: transaction.receipt,
             address: transaction.to,
             blockTime: transaction.blockTimeNormalized,
             internal: transaction.internal,
@@ -46,6 +49,9 @@ export class EthListTransactionsStream extends Transform {
             satoshis: transaction.value,
             height: transaction.blockHeight,
             from: transaction.from,
+            gasPrice: transaction.gasPrice,
+            gasLimit: transaction.gasLimit,
+            receipt: transaction.receipt,
             address: transaction.to,
             blockTime: transaction.blockTimeNormalized,
             internal: transaction.internal,
@@ -70,6 +76,9 @@ export class EthListTransactionsStream extends Transform {
             satoshis: transaction.value,
             height: transaction.blockHeight,
             from: transaction.from,
+            gasPrice: transaction.gasPrice,
+            gasLimit: transaction.gasLimit,
+            receipt: transaction.receipt,
             address: transaction.to,
             blockTime: transaction.blockTimeNormalized,
             internal: transaction.internal,
